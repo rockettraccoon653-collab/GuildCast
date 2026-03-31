@@ -9,6 +9,7 @@ const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
 const API_ROOT = API_BASE.endsWith("/api") ? API_BASE : `${API_BASE}/api`;
 const DEFAULT_BROADCASTER_ID = import.meta.env.VITE_BROADCASTER_ID ?? "demo-broadcaster";
 const ACTIVE_BROADCASTER_KEY = "st-active-broadcaster";
+const LOG_PREFIX = "[GuildCast Config]";
 
 type TwitchAuthPayload = {
   channel_id?: string | number;
@@ -71,6 +72,7 @@ async function resolveTwitchChannelId(): Promise<string> {
     const ext = twitch?.ext;
 
     if (!ext) {
+      console.warn(`${LOG_PREFIX} Twitch helper not available yet; using fallback broadcaster id`);
       resolve("");
       return;
     }
@@ -116,9 +118,21 @@ export function App() {
   const [onboardBId, setOnboardBId] = useState(resolveInitialBroadcasterId);
   const [autoDetectedId, setAutoDetectedId] = useState(false);
   const [onboardName, setOnboardName] = useState("My Channel");
-  const [onboardTeam, setOnboardTeam] = useState("My Stream Team");
+  const [onboardTeam, setOnboardTeam] = useState("Primary Team");
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState("Initializing config UI...");
+  const [isLoading, setIsLoading] = useState(true);
+  const [reloadToken, setReloadToken] = useState(0);
+
+  useEffect(() => {
+    const hasTwitchExt = Boolean((window as Window & { Twitch?: TwitchGlobal }).Twitch?.ext);
+    console.info(`${LOG_PREFIX} app mounted`, {
+      href: window.location.href,
+      apiRoot: API_ROOT,
+      hasTwitchExt,
+      initialBroadcasterId: activeBroadcasterId
+    });
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -126,9 +140,15 @@ export function App() {
     async function detectBroadcaster() {
       const twitchId = await resolveTwitchChannelId();
       if (!mounted || !twitchId) {
+        if (mounted) {
+          console.info(`${LOG_PREFIX} no Twitch broadcaster id detected; using fallback`, {
+            broadcasterId: activeBroadcasterId
+          });
+        }
         return;
       }
 
+      console.info(`${LOG_PREFIX} resolved Twitch broadcaster id`, { twitchId });
       setAutoDetectedId(true);
       setActiveBroadcasterId((current) => (current === twitchId ? current : twitchId));
       setOnboardBId(twitchId);
@@ -143,19 +163,33 @@ export function App() {
 
   useEffect(() => {
     async function load() {
+      console.info(`${LOG_PREFIX} loading settings`, {
+        broadcasterId: activeBroadcasterId,
+        url: `${API_ROOT}/settings/${activeBroadcasterId}`
+      });
+      setIsLoading(true);
       setStatus("Loading broadcaster settings...");
       try {
         const response = await fetch(`${API_ROOT}/settings/${activeBroadcasterId}`);
 
         if (response.status === 404) {
+          console.warn(`${LOG_PREFIX} broadcaster not onboarded`, { broadcasterId: activeBroadcasterId });
           setNeedsOnboarding(true);
           setSettings(null);
           setStatus("Run first-time setup to activate this broadcaster.");
+          setIsLoading(false);
           return;
         }
 
         if (!response.ok) {
-          setStatus("Could not load settings. Check backend URL and try again.");
+          console.error(`${LOG_PREFIX} failed loading settings`, {
+            broadcasterId: activeBroadcasterId,
+            status: response.status
+          });
+          setNeedsOnboarding(false);
+          setSettings(null);
+          setStatus(`Could not load settings (HTTP ${response.status}). Check backend URL and try again.`);
+          setIsLoading(false);
           return;
         }
 
@@ -163,18 +197,28 @@ export function App() {
         setNeedsOnboarding(false);
         setSettings(data);
         setStatus("Ready");
-      } catch {
+        setIsLoading(false);
+        console.info(`${LOG_PREFIX} settings loaded`, { broadcasterId: activeBroadcasterId });
+      } catch (error) {
+        console.error(`${LOG_PREFIX} settings request error`, {
+          broadcasterId: activeBroadcasterId,
+          error
+        });
+        setNeedsOnboarding(false);
+        setSettings(null);
         setStatus("Unable to reach backend. Check VITE_API_BASE_URL and HTTPS hosting.");
+        setIsLoading(false);
       }
     }
     void load();
-  }, [activeBroadcasterId]);
+  }, [activeBroadcasterId, reloadToken]);
 
   useEffect(() => {
     writeStoredBroadcasterId(activeBroadcasterId);
   }, [activeBroadcasterId]);
 
   async function registerBroadcaster() {
+    console.info(`${LOG_PREFIX} register broadcaster requested`, { broadcasterId: onboardBId });
     const response = await fetch(`${API_ROOT}/onboarding/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -186,6 +230,7 @@ export function App() {
     });
 
     if (!response.ok) {
+      console.error(`${LOG_PREFIX} register broadcaster failed`, { status: response.status });
       setStatus("Setup failed. Please check your values.");
       return;
     }
@@ -194,14 +239,20 @@ export function App() {
     setActiveBroadcasterId(data.profile.broadcasterId);
     setSettings(data.settings);
     setNeedsOnboarding(false);
+    setIsLoading(false);
+    console.info(`${LOG_PREFIX} register broadcaster succeeded`, {
+      broadcasterId: data.profile.broadcasterId
+    });
     setStatus(`Broadcaster ${data.profile.displayName} is now active.`);
   }
 
   async function save() {
     if (!settings) {
+      console.warn(`${LOG_PREFIX} save skipped; settings not loaded`);
       return;
     }
 
+    console.info(`${LOG_PREFIX} saving settings`, { broadcasterId: activeBroadcasterId });
     const response = await fetch(`${API_ROOT}/settings/${activeBroadcasterId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -210,12 +261,18 @@ export function App() {
 
     if (response.ok) {
       setStatus("Settings saved");
+      console.info(`${LOG_PREFIX} settings saved`, { broadcasterId: activeBroadcasterId });
     } else {
+      console.error(`${LOG_PREFIX} settings save failed`, { status: response.status });
       setStatus("Save failed");
     }
   }
 
   async function triggerManual() {
+    console.info(`${LOG_PREFIX} manual spotlight trigger requested`, {
+      broadcasterId: activeBroadcasterId,
+      creatorId
+    });
     const response = await fetch(`${API_ROOT}/spotlight/manual`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -224,10 +281,22 @@ export function App() {
 
     if (response.ok) {
       setStatus("Spotlight triggered");
+      console.info(`${LOG_PREFIX} manual spotlight trigger succeeded`);
     } else {
+      console.error(`${LOG_PREFIX} manual spotlight trigger failed`, { status: response.status });
       setStatus("Trigger failed");
     }
   }
+
+  useEffect(() => {
+    console.info(`${LOG_PREFIX} render state`, {
+      broadcasterId: activeBroadcasterId,
+      needsOnboarding,
+      hasSettings: Boolean(settings),
+      isLoading,
+      status
+    });
+  }, [activeBroadcasterId, isLoading, needsOnboarding, settings, status]);
 
   if (needsOnboarding) {
     return (
@@ -263,8 +332,25 @@ export function App() {
     );
   }
 
+  if (isLoading && !settings) {
+    return (
+      <main className="config-root">
+        <h1>Broadcaster Control Console</h1>
+        <p className="status">Loading settings for {activeBroadcasterId}...</p>
+      </main>
+    );
+  }
+
   if (!settings) {
-    return <div className="loading">Loading settings for {activeBroadcasterId}...</div>;
+    return (
+      <main className="config-root">
+        <h1>Broadcaster Control Console</h1>
+        <p className="status">{status || "Unable to load settings for this broadcaster."}</p>
+        <section className="actions">
+          <button onClick={() => setReloadToken((current) => current + 1)}>Retry</button>
+        </section>
+      </main>
+    );
   }
 
   return (

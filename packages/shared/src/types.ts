@@ -4,6 +4,9 @@ export interface TeamBadge {
   id: string;
   name: string;
   thumbnailUrl?: string;
+  ownerId?: string;
+  isOwner?: boolean;
+  source?: "twitch" | "custom";
 }
 
 export interface CreatorProfile {

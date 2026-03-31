@@ -5,6 +5,7 @@ import type { BroadcasterOnboardingRequest, BroadcasterSettings } from "@stream-
 import { InMemoryStore } from "./domain/store";
 import { SpotlightService } from "./domain/spotlight";
 import { RealtimeBroker } from "./realtime/broker";
+import { buildCustomPrimaryTeam, TwitchTeamsService } from "./domain/twitchTeams";
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
@@ -12,6 +13,7 @@ await app.register(cors, { origin: true });
 const store = new InMemoryStore();
 const spotlightService = new SpotlightService(store);
 const broker = new RealtimeBroker();
+const twitchTeamsService = new TwitchTeamsService(app.log);
 
 const settingsSchema = z.object({
   broadcasterId: z.string().min(1),
@@ -51,10 +53,21 @@ app.get("/health", async () => ({ ok: true, service: "stream-team-backend" }));
 app.get("/api/panel/:broadcasterId/members", async (request) => {
   const { broadcasterId } = request.params as { broadcasterId: string };
   if (!store.hasBroadcaster(broadcasterId)) {
-    return { broadcasterId, members: [], onboarded: false };
+    app.log.info({ broadcasterId }, "Panel members requested for non-onboarded broadcaster");
+    return { broadcasterId, members: [], teams: [], onboarded: false };
   }
+
   const members = store.getMembers(broadcasterId);
-  return { broadcasterId, members, onboarded: true };
+  const profile = store.getProfile(broadcasterId);
+  const customTeams = buildCustomPrimaryTeam(broadcasterId, profile?.primaryTeamName);
+  const mergedTeams = await twitchTeamsService.getMergedTeams(broadcasterId, customTeams);
+
+  const membersWithResolvedTeams = members.map((member) => ({
+    ...member,
+    teams: mergedTeams
+  }));
+
+  return { broadcasterId, members: membersWithResolvedTeams, teams: mergedTeams, onboarded: true };
 });
 
 app.get("/api/onboarding/:broadcasterId", async (request, reply) => {

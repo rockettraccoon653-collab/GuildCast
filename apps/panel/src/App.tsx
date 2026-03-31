@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { TeamMemberView } from "@stream-team/shared";
+import type { TeamBadge, TeamMemberView } from "@stream-team/shared";
 
 const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
@@ -112,6 +112,7 @@ async function resolveTwitchChannelId(): Promise<string> {
 export function App() {
   const [broadcasterId, setBroadcasterId] = useState(resolveBroadcasterId);
   const [members, setMembers] = useState<TeamMemberView[]>([]);
+  const [teams, setTeams] = useState<TeamBadge[]>([]);
   const [query, setQuery] = useState("");
   const [onboarded, setOnboarded] = useState(true);
   const [status, setStatus] = useState("");
@@ -142,15 +143,33 @@ export function App() {
   useEffect(() => {
     async function loadMembers() {
       try {
+        const url = `${API_ROOT}/panel/${broadcasterId}/members`;
+        console.info("[GuildCast Panel] loading panel data", { broadcasterId, url });
         const response = await fetch(`${API_ROOT}/panel/${broadcasterId}/members`);
         if (!response.ok) {
+          console.error("[GuildCast Panel] panel data request failed", {
+            broadcasterId,
+            status: response.status
+          });
           setStatus("Could not load team hub data. Check backend URL and availability.");
           return;
         }
-        const data = (await response.json()) as { members: TeamMemberView[]; onboarded?: boolean };
+        const data = (await response.json()) as {
+          members: TeamMemberView[];
+          teams?: TeamBadge[];
+          onboarded?: boolean;
+        };
         setOnboarded(data.onboarded ?? true);
         setMembers(data.members ?? []);
+        setTeams(data.teams ?? []);
+        console.info("[GuildCast Panel] panel data loaded", {
+          broadcasterId,
+          members: data.members?.length ?? 0,
+          teams: data.teams?.length ?? 0,
+          sources: (data.teams ?? []).map((team) => team.source ?? "unknown")
+        });
       } catch {
+        console.error("[GuildCast Panel] panel data request error", { broadcasterId });
         setStatus("Unable to reach backend. Check VITE_API_BASE_URL and HTTPS hosting.");
       }
     }
@@ -193,6 +212,12 @@ export function App() {
         </section>
       )}
 
+      {onboarded && teams.length === 0 && (
+        <section className="empty-state">
+          <p>No stream teams found.</p>
+        </section>
+      )}
+
       <section className="member-grid">
         {filtered.map((member) => (
           <article key={member.userId} className="member-card">
@@ -203,7 +228,9 @@ export function App() {
               <p className="bio">{member.bio ?? "No bio configured yet."}</p>
               <div className="badges">
                 {member.teams.map((team) => (
-                  <span key={team.id}>{team.name}</span>
+                  <span key={team.id}>
+                    {team.name} · {team.isOwner ? "Owner" : "Member"} · {team.source === "custom" ? "Custom" : "Twitch"}
+                  </span>
                 ))}
               </div>
             </div>

@@ -3,6 +3,11 @@ import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import "./styles.css";
 
+console.info("[GuildCast Config] startup", {
+  href: window.location.href,
+  hasTwitchGlobal: Boolean((window as Window & { Twitch?: unknown }).Twitch)
+});
+
 type RootErrorBoundaryState = {
   hasError: boolean;
 };
@@ -30,7 +35,14 @@ class RootErrorBoundary extends React.Component<React.PropsWithChildren, RootErr
   }
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+const rootElement = document.getElementById("root");
+
+if (!rootElement) {
+  console.error("[GuildCast Config] missing #root element");
+  throw new Error("Missing #root element for config app");
+}
+
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <RootErrorBoundary>
       <App />

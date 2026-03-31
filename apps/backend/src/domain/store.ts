@@ -7,11 +7,6 @@ import type {
   TeamMemberView
 } from "@stream-team/shared";
 
-const defaultTeams: TeamBadge[] = [
-  { id: "alpha", name: "Alpha Squad" },
-  { id: "night-ops", name: "Night Ops" }
-];
-
 const defaultMembers: TeamMemberView[] = [
   {
     userId: "1001",
@@ -20,7 +15,7 @@ const defaultMembers: TeamMemberView[] = [
     live: true,
     category: "VALORANT",
     bio: "Aim-heavy duelist and team caller.",
-    teams: defaultTeams
+    teams: []
   },
   {
     userId: "1002",
@@ -28,7 +23,7 @@ const defaultMembers: TeamMemberView[] = [
     avatarUrl: "https://static-cdn.jtvnw.net/jtv_user_pictures/xarth/404_user_70x70.png",
     live: false,
     bio: "Cozy caster and lore crafter.",
-    teams: [{ id: "alpha", name: "Alpha Squad" }]
+    teams: []
   }
 ];
 
@@ -52,7 +47,7 @@ const defaultSettings: BroadcasterSettings = {
 const defaultProfile: BroadcasterProfile = {
   broadcasterId: "demo-broadcaster",
   displayName: "Demo Broadcaster",
-  primaryTeamName: "Alpha Squad",
+  primaryTeamName: "Primary Team",
   createdAt: new Date().toISOString()
 };
 
@@ -62,7 +57,13 @@ function normalizeId(input: string): string {
 
 function generateStarterMembers(displayName: string, primaryTeamName: string): TeamMemberView[] {
   const teamId = normalizeId(primaryTeamName) || "main-team";
-  const coreTeam: TeamBadge = { id: teamId, name: primaryTeamName };
+  const coreTeam: TeamBadge = {
+    id: `custom-${teamId}`,
+    name: primaryTeamName,
+    ownerId: "host",
+    isOwner: true,
+    source: "custom"
+  };
 
   return [
     {
