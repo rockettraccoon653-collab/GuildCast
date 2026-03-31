@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { SpotlightCardData } from "@stream-team/shared";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
+const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
+const API_ROOT = API_BASE.endsWith("/api") ? API_BASE : `${API_BASE}/api`;
 const DEFAULT_BROADCASTER_ID = import.meta.env.VITE_BROADCASTER_ID ?? "demo-broadcaster";
 const ACTIVE_BROADCASTER_KEY = "st-active-broadcaster";
 
@@ -141,7 +143,7 @@ export function App() {
 
     async function connect() {
       try {
-        const check = await fetch(`${API_BASE}/api/onboarding/${broadcasterId}`);
+        const check = await fetch(`${API_ROOT}/onboarding/${broadcasterId}`);
         if (check.status === 404) {
           setStatus(`Channel ${broadcasterId} is not activated yet.`);
           return;
@@ -152,7 +154,7 @@ export function App() {
           return;
         }
 
-        source = new EventSource(`${API_BASE}/api/overlay/stream/${broadcasterId}`);
+        source = new EventSource(`${API_ROOT}/overlay/stream/${broadcasterId}`);
         source.onmessage = (event) => {
           const parsed = JSON.parse(event.data) as SpotlightCardData;
           setExpanded(false);

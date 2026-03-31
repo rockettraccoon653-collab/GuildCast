@@ -4,7 +4,9 @@ import type {
   BroadcasterSettings
 } from "@stream-team/shared";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
+const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
+const API_ROOT = API_BASE.endsWith("/api") ? API_BASE : `${API_BASE}/api`;
 const DEFAULT_BROADCASTER_ID = import.meta.env.VITE_BROADCASTER_ID ?? "demo-broadcaster";
 const ACTIVE_BROADCASTER_KEY = "st-active-broadcaster";
 
@@ -143,7 +145,7 @@ export function App() {
     async function load() {
       setStatus("Loading broadcaster settings...");
       try {
-        const response = await fetch(`${API_BASE}/api/settings/${activeBroadcasterId}`);
+        const response = await fetch(`${API_ROOT}/settings/${activeBroadcasterId}`);
 
         if (response.status === 404) {
           setNeedsOnboarding(true);
@@ -173,7 +175,7 @@ export function App() {
   }, [activeBroadcasterId]);
 
   async function registerBroadcaster() {
-    const response = await fetch(`${API_BASE}/api/onboarding/register`, {
+    const response = await fetch(`${API_ROOT}/onboarding/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -200,7 +202,7 @@ export function App() {
       return;
     }
 
-    const response = await fetch(`${API_BASE}/api/settings/${activeBroadcasterId}`, {
+    const response = await fetch(`${API_ROOT}/settings/${activeBroadcasterId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings)
@@ -214,7 +216,7 @@ export function App() {
   }
 
   async function triggerManual() {
-    const response = await fetch(`${API_BASE}/api/spotlight/manual`, {
+    const response = await fetch(`${API_ROOT}/spotlight/manual`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ broadcasterId: activeBroadcasterId, creatorUserId: creatorId })

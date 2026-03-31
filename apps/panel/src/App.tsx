@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TeamMemberView } from "@stream-team/shared";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
+const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
+const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
+const API_ROOT = API_BASE.endsWith("/api") ? API_BASE : `${API_BASE}/api`;
 const DEFAULT_BROADCASTER_ID = import.meta.env.VITE_BROADCASTER_ID ?? "demo-broadcaster";
 const ACTIVE_BROADCASTER_KEY = "st-active-broadcaster";
 
@@ -140,7 +142,7 @@ export function App() {
   useEffect(() => {
     async function loadMembers() {
       try {
-        const response = await fetch(`${API_BASE}/api/panel/${broadcasterId}/members`);
+        const response = await fetch(`${API_ROOT}/panel/${broadcasterId}/members`);
         if (!response.ok) {
           setStatus("Could not load team hub data. Check backend URL and availability.");
           return;
