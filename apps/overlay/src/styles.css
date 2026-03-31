@@ -1,0 +1,137 @@
+:root {
+  --neon: #37ffd2;
+  --hot: #ff6f91;
+  --ink: #f3fbff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: Manrope, sans-serif;
+  color: var(--ink);
+  background: transparent;
+}
+
+.idle {
+  position: fixed;
+  right: 18px;
+  top: 18px;
+  font-size: 0.9rem;
+  color: rgba(232, 244, 255, 0.8);
+}
+
+.spotlight {
+  position: fixed;
+  right: 18px;
+  bottom: 22px;
+  width: min(420px, calc(100vw - 32px));
+  display: grid;
+  grid-template-columns: 82px 1fr auto;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(55, 255, 210, 0.35);
+  background: linear-gradient(160deg, rgba(4, 26, 39, 0.88), rgba(28, 5, 25, 0.88));
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.45),
+    0 0 36px rgba(55, 255, 210, 0.22);
+  animation: cardIn 420ms cubic-bezier(0.17, 0.89, 0.32, 1.18);
+  overflow: hidden;
+}
+
+.spotlight.expanded {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.halo {
+  position: absolute;
+  inset: -40% auto auto -30%;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(55, 255, 210, 0.25), transparent 65%);
+  pointer-events: none;
+}
+
+.avatar {
+  width: 82px;
+  height: 82px;
+  border-radius: 14px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 111, 145, 0.55);
+}
+
+.content h1 {
+  margin: 2px 0;
+  font-family: Orbitron, sans-serif;
+  letter-spacing: 0.06em;
+  font-size: 1.05rem;
+}
+
+.chip {
+  margin: 0;
+  color: var(--neon);
+  font-size: 0.7rem;
+  letter-spacing: 0.15em;
+}
+
+.live,
+.offline {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.live {
+  color: var(--neon);
+}
+
+.offline {
+  color: var(--hot);
+}
+
+.bio {
+  margin: 5px 0;
+  font-size: 0.82rem;
+  color: rgba(238, 248, 255, 0.9);
+}
+
+.teams {
+  font-size: 0.75rem;
+  color: rgba(174, 221, 244, 0.9);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.actions button {
+  border: 1px solid rgba(55, 255, 210, 0.35);
+  border-radius: 9px;
+  background: rgba(4, 22, 34, 0.8);
+  color: var(--ink);
+  padding: 6px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.actions button:hover {
+  border-color: rgba(255, 111, 145, 0.65);
+}
+
+@keyframes cardIn {
+  from {
+    transform: translateY(24px) scale(0.92);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}

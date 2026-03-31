@@ -1,0 +1,128 @@
+:root {
+  --bg-1: #071018;
+  --bg-2: #0b1b29;
+  --panel: rgba(15, 30, 44, 0.85);
+  --line: rgba(78, 255, 214, 0.3);
+  --ink: #e9f8ff;
+  --muted: #8fb2c2;
+  --live: #1cffb4;
+  --offline: #ff7b9d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 20% 20%, #12364a, transparent 50%),
+    radial-gradient(circle at 80% 0%, #3b1246, transparent 40%),
+    linear-gradient(135deg, var(--bg-1), var(--bg-2));
+}
+
+.panel-root {
+  padding: 14px;
+}
+
+.panel-header h1 {
+  font-family: "Rajdhani", sans-serif;
+  letter-spacing: 0.08em;
+  margin: 2px 0 10px;
+}
+
+.kicker {
+  color: #4effd6;
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.search {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(6, 18, 28, 0.7);
+  color: var(--ink);
+  padding: 10px;
+}
+
+.broadcaster {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.empty-state {
+  border: 1px dashed rgba(78, 255, 214, 0.28);
+  border-radius: 12px;
+  padding: 10px;
+  margin-top: 12px;
+  background: rgba(12, 24, 36, 0.6);
+}
+
+.member-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.member-card {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 10px;
+  border: 1px solid rgba(78, 255, 214, 0.2);
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: 0 0 30px rgba(0, 217, 255, 0.08);
+}
+
+.member-card img {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.member-card h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.live,
+.offline {
+  margin: 2px 0;
+  font-size: 0.8rem;
+}
+
+.live {
+  color: var(--live);
+}
+
+.offline {
+  color: var(--offline);
+}
+
+.bio {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.badges span {
+  border: 1px solid rgba(255, 77, 141, 0.35);
+  background: rgba(255, 77, 141, 0.14);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 0.74rem;
+}

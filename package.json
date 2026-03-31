@@ -1,0 +1,18 @@
+{
+  "name": "stream-team-spotlight",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run --workspaces build",
+    "dev": "npm run --workspaces dev",
+    "lint": "npm run --workspaces lint",
+    "typecheck": "npm run --workspaces typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
