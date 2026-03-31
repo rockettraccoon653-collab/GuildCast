@@ -8,9 +8,25 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 const DEFAULT_BROADCASTER_ID = import.meta.env.VITE_BROADCASTER_ID ?? "demo-broadcaster";
 const ACTIVE_BROADCASTER_KEY = "st-active-broadcaster";
 
+function readStoredBroadcasterId(): string {
+  try {
+    return window.localStorage.getItem(ACTIVE_BROADCASTER_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredBroadcasterId(value: string): void {
+  try {
+    window.localStorage.setItem(ACTIVE_BROADCASTER_KEY, value);
+  } catch {
+    // Ignore storage errors in embedded/sandboxed contexts.
+  }
+}
+
 function resolveInitialBroadcasterId(): string {
   const fromQuery = new URLSearchParams(window.location.search).get("b") ?? "";
-  const fromStorage = window.localStorage.getItem(ACTIVE_BROADCASTER_KEY) ?? "";
+  const fromStorage = readStoredBroadcasterId();
   return (fromQuery || fromStorage || DEFAULT_BROADCASTER_ID).trim().toLowerCase();
 }
 
@@ -27,25 +43,34 @@ export function App() {
   useEffect(() => {
     async function load() {
       setStatus("Loading broadcaster settings...");
-      const response = await fetch(`${API_BASE}/api/settings/${activeBroadcasterId}`);
+      try {
+        const response = await fetch(`${API_BASE}/api/settings/${activeBroadcasterId}`);
 
-      if (response.status === 404) {
-        setNeedsOnboarding(true);
-        setSettings(null);
-        setStatus("Run first-time setup to activate this broadcaster.");
-        return;
+        if (response.status === 404) {
+          setNeedsOnboarding(true);
+          setSettings(null);
+          setStatus("Run first-time setup to activate this broadcaster.");
+          return;
+        }
+
+        if (!response.ok) {
+          setStatus("Could not load settings. Check backend URL and try again.");
+          return;
+        }
+
+        const data = (await response.json()) as BroadcasterSettings;
+        setNeedsOnboarding(false);
+        setSettings(data);
+        setStatus("Ready");
+      } catch {
+        setStatus("Unable to reach backend. Check VITE_API_BASE_URL and HTTPS hosting.");
       }
-
-      const data = (await response.json()) as BroadcasterSettings;
-      setNeedsOnboarding(false);
-      setSettings(data);
-      setStatus("Ready");
     }
     void load();
   }, [activeBroadcasterId]);
 
   useEffect(() => {
-    window.localStorage.setItem(ACTIVE_BROADCASTER_KEY, activeBroadcasterId);
+    writeStoredBroadcasterId(activeBroadcasterId);
   }, [activeBroadcasterId]);
 
   async function registerBroadcaster() {

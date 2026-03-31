@@ -5,12 +5,28 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 const DEFAULT_BROADCASTER_ID = import.meta.env.VITE_BROADCASTER_ID ?? "demo-broadcaster";
 const ACTIVE_BROADCASTER_KEY = "st-active-broadcaster";
 
+function readStoredBroadcasterId(): string {
+  try {
+    return window.localStorage.getItem(ACTIVE_BROADCASTER_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredBroadcasterId(value: string): void {
+  try {
+    window.localStorage.setItem(ACTIVE_BROADCASTER_KEY, value);
+  } catch {
+    // Ignore storage errors in embedded/sandboxed contexts.
+  }
+}
+
 function resolveBroadcasterId(): string {
   const query = new URLSearchParams(window.location.search);
   const fromUrl = query.get("b") ?? query.get("broadcaster") ?? "";
-  const fromStorage = window.localStorage.getItem(ACTIVE_BROADCASTER_KEY) ?? "";
+  const fromStorage = readStoredBroadcasterId();
   const id = (fromUrl || fromStorage || DEFAULT_BROADCASTER_ID).trim().toLowerCase();
-  window.localStorage.setItem(ACTIVE_BROADCASTER_KEY, id);
+  writeStoredBroadcasterId(id);
   return id;
 }
 
@@ -24,22 +40,31 @@ export function App() {
     let source: EventSource | null = null;
 
     async function connect() {
-      const check = await fetch(`${API_BASE}/api/onboarding/${broadcasterId}`);
-      if (check.status === 404) {
-        setStatus(`Channel ${broadcasterId} is not activated yet.`);
-        return;
-      }
+      try {
+        const check = await fetch(`${API_BASE}/api/onboarding/${broadcasterId}`);
+        if (check.status === 404) {
+          setStatus(`Channel ${broadcasterId} is not activated yet.`);
+          return;
+        }
 
-      source = new EventSource(`${API_BASE}/api/overlay/stream/${broadcasterId}`);
-      source.onmessage = (event) => {
-        const parsed = JSON.parse(event.data) as SpotlightCardData;
-        setExpanded(false);
-        setStatus("Live spotlight feed connected");
-        setCard(parsed);
-      };
-      source.onerror = () => {
-        setStatus("Overlay stream reconnecting...");
-      };
+        if (!check.ok) {
+          setStatus("Unable to verify onboarding status.");
+          return;
+        }
+
+        source = new EventSource(`${API_BASE}/api/overlay/stream/${broadcasterId}`);
+        source.onmessage = (event) => {
+          const parsed = JSON.parse(event.data) as SpotlightCardData;
+          setExpanded(false);
+          setStatus("Live spotlight feed connected");
+          setCard(parsed);
+        };
+        source.onerror = () => {
+          setStatus("Overlay stream reconnecting...");
+        };
+      } catch {
+        setStatus("Unable to reach backend. Check VITE_API_BASE_URL and HTTPS hosting.");
+      }
     }
 
     void connect();

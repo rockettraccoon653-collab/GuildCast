@@ -5,12 +5,28 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 const DEFAULT_BROADCASTER_ID = import.meta.env.VITE_BROADCASTER_ID ?? "demo-broadcaster";
 const ACTIVE_BROADCASTER_KEY = "st-active-broadcaster";
 
+function readStoredBroadcasterId(): string {
+  try {
+    return window.localStorage.getItem(ACTIVE_BROADCASTER_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredBroadcasterId(value: string): void {
+  try {
+    window.localStorage.setItem(ACTIVE_BROADCASTER_KEY, value);
+  } catch {
+    // Ignore storage errors in embedded/sandboxed contexts.
+  }
+}
+
 function resolveBroadcasterId(): string {
   const query = new URLSearchParams(window.location.search);
   const fromUrl = query.get("b") ?? query.get("broadcaster") ?? "";
-  const fromStorage = window.localStorage.getItem(ACTIVE_BROADCASTER_KEY) ?? "";
+  const fromStorage = readStoredBroadcasterId();
   const id = (fromUrl || fromStorage || DEFAULT_BROADCASTER_ID).trim().toLowerCase();
-  window.localStorage.setItem(ACTIVE_BROADCASTER_KEY, id);
+  writeStoredBroadcasterId(id);
   return id;
 }
 
@@ -19,13 +35,22 @@ export function App() {
   const [members, setMembers] = useState<TeamMemberView[]>([]);
   const [query, setQuery] = useState("");
   const [onboarded, setOnboarded] = useState(true);
+  const [status, setStatus] = useState("");
 
   useEffect(() => {
     async function loadMembers() {
-      const response = await fetch(`${API_BASE}/api/panel/${broadcasterId}/members`);
-      const data = (await response.json()) as { members: TeamMemberView[]; onboarded?: boolean };
-      setOnboarded(data.onboarded ?? true);
-      setMembers(data.members ?? []);
+      try {
+        const response = await fetch(`${API_BASE}/api/panel/${broadcasterId}/members`);
+        if (!response.ok) {
+          setStatus("Could not load team hub data. Check backend URL and availability.");
+          return;
+        }
+        const data = (await response.json()) as { members: TeamMemberView[]; onboarded?: boolean };
+        setOnboarded(data.onboarded ?? true);
+        setMembers(data.members ?? []);
+      } catch {
+        setStatus("Unable to reach backend. Check VITE_API_BASE_URL and HTTPS hosting.");
+      }
     }
 
     void loadMembers();
@@ -51,6 +76,7 @@ export function App() {
           placeholder="Search teammates"
           className="search"
         />
+        {status && <p className="broadcaster">{status}</p>}
       </header>
 
       {!onboarded && (
