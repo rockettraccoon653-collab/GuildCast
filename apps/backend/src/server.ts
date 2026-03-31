@@ -1,11 +1,15 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { z } from "zod";
-import type { BroadcasterOnboardingRequest, BroadcasterSettings } from "@stream-team/shared";
+import type {
+  BroadcasterOnboardingRequest,
+  BroadcasterSettings,
+  PanelMembersResponse
+} from "@stream-team/shared";
 import { InMemoryStore } from "./domain/store";
 import { SpotlightService } from "./domain/spotlight";
 import { RealtimeBroker } from "./realtime/broker";
-import { buildCustomPrimaryTeam, TwitchTeamsService } from "./domain/twitchTeams";
+import { TwitchTeamsService } from "./domain/twitchTeams";
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
@@ -44,8 +48,7 @@ const shoutoutSchema = z.object({
 
 const onboardingSchema = z.object({
   broadcasterId: z.string().min(3),
-  displayName: z.string().min(2),
-  primaryTeamName: z.string().min(2)
+  displayName: z.string().min(2)
 });
 
 app.get("/health", async () => ({ ok: true, service: "stream-team-backend" }));
@@ -54,20 +57,59 @@ app.get("/api/panel/:broadcasterId/members", async (request) => {
   const { broadcasterId } = request.params as { broadcasterId: string };
   if (!store.hasBroadcaster(broadcasterId)) {
     app.log.info({ broadcasterId }, "Panel members requested for non-onboarded broadcaster");
-    return { broadcasterId, members: [], teams: [], onboarded: false };
+    return {
+      broadcasterId,
+      members: [],
+      teams: [],
+      twitchTeams: [],
+      onboarded: false
+    } satisfies PanelMembersResponse;
   }
 
   const members = store.getMembers(broadcasterId);
-  const profile = store.getProfile(broadcasterId);
-  const customTeams = buildCustomPrimaryTeam(broadcasterId, profile?.primaryTeamName);
-  const mergedTeams = await twitchTeamsService.getMergedTeams(broadcasterId, customTeams);
+  const twitchTeams = await twitchTeamsService.getTwitchTeams(broadcasterId);
 
-  const membersWithResolvedTeams = members.map((member) => ({
-    ...member,
-    teams: mergedTeams
+  const twitchBadges = twitchTeams.map((team) => ({
+    id: team.id,
+    name: team.displayName || team.name,
+    thumbnailUrl: team.thumbnailUrl,
+    ownerId: team.ownerId,
+    isOwner: team.role === "owner",
+    source: "twitch-verified" as const
   }));
 
-  return { broadcasterId, members: membersWithResolvedTeams, teams: mergedTeams, onboarded: true };
+  const membersWithTeams = members.map((member) => ({
+    ...member,
+    teams: twitchBadges
+  }));
+
+  app.log.info(
+    {
+      broadcasterId,
+      members: membersWithTeams.length,
+      twitchTeams: twitchTeams.length
+    },
+    "Resolved panel members response"
+  );
+
+  return {
+    broadcasterId,
+    members: membersWithTeams,
+    teams: twitchBadges,
+    twitchTeams,
+    onboarded: true
+  } satisfies PanelMembersResponse;
+});
+
+app.get("/api/twitch-teams/:broadcasterId", async (request) => {
+  const { broadcasterId } = request.params as { broadcasterId: string };
+  app.log.info({ broadcasterId }, "Twitch team membership request received");
+  const teams = await twitchTeamsService.getTwitchTeams(broadcasterId);
+  app.log.info(
+    { broadcasterId, count: teams.length, fallbackShown: teams.length === 0 },
+    "Returning Twitch team memberships"
+  );
+  return { broadcasterId, teams };
 });
 
 app.get("/api/onboarding/:broadcasterId", async (request, reply) => {

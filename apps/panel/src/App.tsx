@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { TeamBadge, TeamMemberView } from "@stream-team/shared";
+import type { PanelMembersResponse, TeamBadge, TeamMemberView, TwitchTeamView } from "@stream-team/shared";
 
 const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
@@ -143,30 +143,76 @@ export function App() {
   useEffect(() => {
     async function loadMembers() {
       try {
-        const url = `${API_ROOT}/panel/${broadcasterId}/members`;
-        console.info("[GuildCast Panel] loading panel data", { broadcasterId, url });
-        const response = await fetch(`${API_ROOT}/panel/${broadcasterId}/members`);
-        if (!response.ok) {
-          console.error("[GuildCast Panel] panel data request failed", {
+        const panelUrl = `${API_ROOT}/panel/${broadcasterId}/members`;
+        const twitchTeamsUrl = `${API_ROOT}/twitch-teams/${broadcasterId}`;
+        console.info("[GuildCast Panel] loading panel data", {
+          broadcasterId,
+          panelUrl,
+          twitchTeamsUrl
+        });
+
+        const [panelResponse, twitchTeamsResponse] = await Promise.allSettled([
+          fetch(panelUrl),
+          fetch(twitchTeamsUrl)
+        ]);
+
+        if (panelResponse.status === "rejected") {
+          console.error("[GuildCast Panel] panel data request error", {
             broadcasterId,
-            status: response.status
+            reason: String(panelResponse.reason)
           });
           setStatus("Could not load team hub data. Check backend URL and availability.");
           return;
         }
-        const data = (await response.json()) as {
-          members: TeamMemberView[];
-          teams?: TeamBadge[];
-          onboarded?: boolean;
-        };
+
+        if (!panelResponse.value.ok) {
+          console.error("[GuildCast Panel] panel data request failed", {
+            broadcasterId,
+            status: panelResponse.value.status
+          });
+          setStatus("Could not load team hub data. Check backend URL and availability.");
+          return;
+        }
+
+        const data = (await panelResponse.value.json()) as PanelMembersResponse;
+        let twitchTeams: TwitchTeamView[] = data.twitchTeams ?? [];
+
+        if (twitchTeamsResponse.status === "fulfilled") {
+          if (twitchTeamsResponse.value.ok) {
+            const twitchPayload = (await twitchTeamsResponse.value.json()) as {
+              teams?: TwitchTeamView[];
+            };
+            twitchTeams = twitchPayload.teams ?? twitchTeams;
+          } else {
+            console.warn("[GuildCast Panel] twitch teams request failed", {
+              broadcasterId,
+              status: twitchTeamsResponse.value.status
+            });
+          }
+        } else {
+          console.warn("[GuildCast Panel] twitch teams request error", {
+            broadcasterId,
+            reason: String(twitchTeamsResponse.reason)
+          });
+        }
+
+        const twitchAsBadges = twitchTeams.map((team) => ({
+          id: team.id,
+          name: team.displayName || team.name,
+          thumbnailUrl: team.thumbnailUrl,
+          ownerId: team.ownerId,
+          isOwner: team.role === "owner",
+          source: "twitch-verified" as const
+        }));
+
         setOnboarded(data.onboarded ?? true);
         setMembers(data.members ?? []);
-        setTeams(data.teams ?? []);
+        setTeams(twitchAsBadges);
         console.info("[GuildCast Panel] panel data loaded", {
           broadcasterId,
           members: data.members?.length ?? 0,
-          teams: data.teams?.length ?? 0,
-          sources: (data.teams ?? []).map((team) => team.source ?? "unknown")
+          twitchTeams: twitchTeams.length,
+          source: "twitch-verified"
         });
       } catch {
         console.error("[GuildCast Panel] panel data request error", { broadcasterId });
@@ -214,7 +260,7 @@ export function App() {
 
       {onboarded && teams.length === 0 && (
         <section className="empty-state">
-          <p>No stream teams found.</p>
+          <p>No verified Twitch stream teams found for this broadcaster.</p>
         </section>
       )}
 
@@ -227,9 +273,9 @@ export function App() {
               <p className={member.live ? "live" : "offline"}>{member.live ? "Live now" : "Offline"}</p>
               <p className="bio">{member.bio ?? "No bio configured yet."}</p>
               <div className="badges">
-                {member.teams.map((team) => (
+                {(teams.length > 0 ? teams : member.teams).map((team) => (
                   <span key={team.id}>
-                    {team.name} · {team.isOwner ? "Owner" : "Member"} · {team.source === "custom" ? "Custom" : "Twitch"}
+                    {team.name} · {team.isOwner ? "Owner" : "Member"}
                   </span>
                 ))}
               </div>

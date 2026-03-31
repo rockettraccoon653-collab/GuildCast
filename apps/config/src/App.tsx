@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type {
   BroadcasterOnboardingResponse,
-  BroadcasterSettings
+  BroadcasterSettings,
+  TwitchTeamView
 } from "@stream-team/shared";
 
 const RAW_API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
@@ -118,11 +119,12 @@ export function App() {
   const [onboardBId, setOnboardBId] = useState(resolveInitialBroadcasterId);
   const [autoDetectedId, setAutoDetectedId] = useState(false);
   const [onboardName, setOnboardName] = useState("My Channel");
-  const [onboardTeam, setOnboardTeam] = useState("Primary Team");
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [status, setStatus] = useState("Initializing config UI...");
   const [isLoading, setIsLoading] = useState(true);
   const [reloadToken, setReloadToken] = useState(0);
+  const [twitchTeams, setTwitchTeams] = useState<TwitchTeamView[]>([]);
+  const [teamsStatus, setTeamsStatus] = useState("Loading Twitch stream teams...");
 
   useEffect(() => {
     const hasTwitchExt = Boolean((window as Window & { Twitch?: TwitchGlobal }).Twitch?.ext);
@@ -214,6 +216,46 @@ export function App() {
   }, [activeBroadcasterId, reloadToken]);
 
   useEffect(() => {
+    async function loadTwitchTeams() {
+      const url = `${API_ROOT}/twitch-teams/${activeBroadcasterId}`;
+      console.info(`${LOG_PREFIX} loading twitch teams`, {
+        broadcasterId: activeBroadcasterId,
+        url
+      });
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          console.warn(`${LOG_PREFIX} twitch teams request failed`, {
+            broadcasterId: activeBroadcasterId,
+            status: response.status
+          });
+          setTwitchTeams([]);
+          setTeamsStatus(`Could not load Twitch teams (HTTP ${response.status}).`);
+          return;
+        }
+
+        const payload = (await response.json()) as { teams?: TwitchTeamView[] };
+        const teams = payload.teams ?? [];
+        setTwitchTeams(teams);
+        setTeamsStatus(teams.length > 0 ? `Found ${teams.length} Twitch stream team(s).` : "No stream teams found");
+        console.info(`${LOG_PREFIX} twitch teams loaded`, {
+          broadcasterId: activeBroadcasterId,
+          teamsReturned: teams.length
+        });
+      } catch (error) {
+        console.error(`${LOG_PREFIX} twitch teams request error`, {
+          broadcasterId: activeBroadcasterId,
+          error
+        });
+        setTwitchTeams([]);
+        setTeamsStatus("Unable to reach Twitch teams endpoint.");
+      }
+    }
+
+    void loadTwitchTeams();
+  }, [activeBroadcasterId, reloadToken]);
+
+  useEffect(() => {
     writeStoredBroadcasterId(activeBroadcasterId);
   }, [activeBroadcasterId]);
 
@@ -224,8 +266,7 @@ export function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         broadcasterId: onboardBId,
-        displayName: onboardName,
-        primaryTeamName: onboardTeam
+        displayName: onboardName
       })
     });
 
@@ -318,10 +359,6 @@ export function App() {
           <label>
             Display name
             <input value={onboardName} onChange={(event) => setOnboardName(event.target.value)} />
-          </label>
-          <label>
-            Primary team name
-            <input value={onboardTeam} onChange={(event) => setOnboardTeam(event.target.value)} />
           </label>
         </section>
         <section className="actions">
@@ -429,21 +466,23 @@ export function App() {
         </div>
       </section>
 
-      {!autoDetectedId && (
-        <section className="actions switcher">
-          <label>
-            Switch broadcaster
-            <input
-              value={onboardBId}
-              onChange={(event) => setOnboardBId(event.target.value)}
-              placeholder="another-channel-login"
-            />
-          </label>
-          <button onClick={() => setActiveBroadcasterId(onboardBId.trim().toLowerCase())}>
-            Load Broadcaster
-          </button>
-        </section>
-      )}
+      <section className="actions">
+        <h2>Verified Twitch Stream Teams</h2>
+        <p className="status">{teamsStatus}</p>
+        {twitchTeams.length > 0 ? (
+          <ul>
+            {twitchTeams.map((team) => (
+              <li key={team.id}>
+                {team.displayName}
+                {" "}
+                ({team.role === "owner" ? "Owner" : team.role === "member" ? "Member" : "Member"})
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="status">No verified Twitch stream teams found for this broadcaster.</p>
+        )}
+      </section>
 
       <p className="status">{status}</p>
     </main>

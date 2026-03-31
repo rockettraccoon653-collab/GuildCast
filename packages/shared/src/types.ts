@@ -6,7 +6,24 @@ export interface TeamBadge {
   thumbnailUrl?: string;
   ownerId?: string;
   isOwner?: boolean;
-  source?: "twitch" | "custom";
+  source?: "twitch-verified";
+}
+
+export interface TwitchTeamView {
+  id: string;
+  name: string;
+  displayName: string;
+  thumbnailUrl?: string;
+  backgroundImageUrl?: string;
+  info?: string;
+  source: "twitch-verified";
+  role: "owner" | "member" | "member-or-owner-unknown";
+  ownerId?: string;
+  members?: Array<{
+    userId: string;
+    login: string;
+    displayName: string;
+  }>;
 }
 
 export interface CreatorProfile {
@@ -51,14 +68,12 @@ export interface BroadcasterSettings {
 export interface BroadcasterProfile {
   broadcasterId: string;
   displayName: string;
-  primaryTeamName: string;
   createdAt: string;
 }
 
 export interface BroadcasterOnboardingRequest {
   broadcasterId: string;
   displayName: string;
-  primaryTeamName: string;
 }
 
 export interface BroadcasterOnboardingResponse {
@@ -75,4 +90,12 @@ export interface TeamMemberView {
   category?: string;
   bio?: string;
   teams: TeamBadge[];
+}
+
+export interface PanelMembersResponse {
+  broadcasterId: string;
+  members: TeamMemberView[];
+  teams: TeamBadge[];
+  twitchTeams: TwitchTeamView[];
+  onboarded: boolean;
 }

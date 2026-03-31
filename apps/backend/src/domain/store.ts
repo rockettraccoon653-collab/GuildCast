@@ -3,7 +3,6 @@ import type {
   BroadcasterOnboardingResponse,
   BroadcasterProfile,
   BroadcasterSettings,
-  TeamBadge,
   TeamMemberView
 } from "@stream-team/shared";
 
@@ -47,7 +46,6 @@ const defaultSettings: BroadcasterSettings = {
 const defaultProfile: BroadcasterProfile = {
   broadcasterId: "demo-broadcaster",
   displayName: "Demo Broadcaster",
-  primaryTeamName: "Primary Team",
   createdAt: new Date().toISOString()
 };
 
@@ -55,44 +53,15 @@ function normalizeId(input: string): string {
   return input.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-");
 }
 
-function generateStarterMembers(displayName: string, primaryTeamName: string): TeamMemberView[] {
-  const teamId = normalizeId(primaryTeamName) || "main-team";
-  const coreTeam: TeamBadge = {
-    id: `custom-${teamId}`,
-    name: primaryTeamName,
-    ownerId: "host",
-    isOwner: true,
-    source: "custom"
+function generateStarterMember(displayName: string): TeamMemberView {
+  return {
+    userId: normalizeId(displayName) || "host",
+    displayName,
+    avatarUrl: "https://static-cdn.jtvnw.net/jtv_user_pictures/xarth/404_user_70x70.png",
+    live: false,
+    bio: "",
+    teams: []
   };
-
-  return [
-    {
-      userId: "host",
-      displayName,
-      avatarUrl: "https://static-cdn.jtvnw.net/jtv_user_pictures/xarth/404_user_70x70.png",
-      live: true,
-      category: "Just Chatting",
-      bio: `Host of ${primaryTeamName}.`,
-      teams: [coreTeam]
-    },
-    {
-      userId: "teammate-1",
-      displayName: `${displayName} Ally`,
-      avatarUrl: "https://static-cdn.jtvnw.net/jtv_user_pictures/xarth/404_user_70x70.png",
-      live: false,
-      bio: "Support creator focused on collab nights.",
-      teams: [coreTeam]
-    },
-    {
-      userId: "teammate-2",
-      displayName: `${displayName} Raider`,
-      avatarUrl: "https://static-cdn.jtvnw.net/jtv_user_pictures/xarth/404_user_70x70.png",
-      live: true,
-      category: "Apex Legends",
-      bio: "Competitive squad partner and raid anchor.",
-      teams: [coreTeam, { id: "shared-creators", name: "Shared Creators" }]
-    }
-  ];
 }
 
 export class InMemoryStore {
@@ -130,7 +99,6 @@ export class InMemoryStore {
     const profile: BroadcasterProfile = {
       broadcasterId,
       displayName: request.displayName.trim(),
-      primaryTeamName: request.primaryTeamName.trim(),
       createdAt: new Date().toISOString()
     };
 
@@ -142,7 +110,7 @@ export class InMemoryStore {
       }
     };
 
-    const members = generateStarterMembers(profile.displayName, profile.primaryTeamName);
+    const members = [generateStarterMember(profile.displayName)];
 
     this.profilesByBroadcaster.set(broadcasterId, profile);
     this.settingsByBroadcaster.set(broadcasterId, settings);
