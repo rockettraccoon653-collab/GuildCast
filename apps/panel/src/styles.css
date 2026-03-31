@@ -7,24 +7,60 @@
   --muted: #8fb2c2;
   --live: #1cffb4;
   --offline: #ff7b9d;
+  --page-bg: linear-gradient(135deg, var(--bg-1), var(--bg-2));
+  --panel-card: var(--panel);
+  --panel-height: 496px;
+  --panel-width: 318px;
+  --primary: #4effd6;
+  --accent: #ff4d8d;
+  --font-family: "Space Grotesk", sans-serif;
+  --font-size: 14px;
+  --font-weight: 500;
+  --letter-spacing: 0px;
+  --section-gap: 12px;
+  --card-padding: 10px;
+  --radius: 12px;
+  --inner-radius: 10px;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  min-height: 100%;
+}
+
 body {
   margin: 0;
-  font-family: "Space Grotesk", sans-serif;
+  font-family: var(--font-family);
+  font-size: var(--font-size);
+  font-weight: var(--font-weight);
+  letter-spacing: var(--letter-spacing);
   color: var(--ink);
   background:
     radial-gradient(circle at 20% 20%, #12364a, transparent 50%),
     radial-gradient(circle at 80% 0%, #3b1246, transparent 40%),
-    linear-gradient(135deg, var(--bg-1), var(--bg-2));
+    var(--page-bg);
 }
 
 .panel-root {
-  padding: 14px;
+  width: var(--panel-width);
+  max-width: min(100%, var(--panel-width));
+  min-height: var(--panel-height);
+  height: var(--panel-height);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--section-gap);
+  overflow: visible;
+  margin: 0 auto;
+  border: 1px solid rgba(78, 255, 214, 0.26);
+  border-radius: var(--radius);
+  background: var(--panel-card);
 }
 
 .panel-header h1 {
@@ -34,7 +70,7 @@ body {
 }
 
 .kicker {
-  color: #4effd6;
+  color: var(--primary);
   margin: 0;
   font-size: 12px;
   text-transform: uppercase;
@@ -44,10 +80,10 @@ body {
 .search {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--inner-radius);
   background: rgba(6, 18, 28, 0.7);
   color: var(--ink);
-  padding: 10px;
+  padding: 12px;
 }
 
 .broadcaster {
@@ -58,39 +94,45 @@ body {
 
 .empty-state {
   border: 1px dashed rgba(78, 255, 214, 0.28);
-  border-radius: 12px;
-  padding: 10px;
-  margin-top: 12px;
+  border-radius: var(--inner-radius);
+  padding: var(--card-padding);
   background: rgba(12, 24, 36, 0.6);
 }
 
 .member-grid {
   display: grid;
-  gap: 10px;
-  margin-top: 12px;
+  gap: var(--section-gap);
+  overflow: visible;
+  padding-right: 2px;
+  min-height: 0;
 }
 
 .member-card {
   display: grid;
-  grid-template-columns: 64px 1fr;
-  gap: 10px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 12px;
   border: 1px solid rgba(78, 255, 214, 0.2);
-  background: var(--panel);
-  border-radius: 12px;
-  padding: 10px;
+  background: var(--panel-card);
+  border-radius: var(--inner-radius);
+  padding: var(--card-padding);
   box-shadow: 0 0 30px rgba(0, 217, 255, 0.08);
 }
 
 .member-card img {
-  width: 64px;
-  height: 64px;
-  border-radius: 12px;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--inner-radius);
   object-fit: cover;
+}
+
+.member-card > div {
+  min-width: 0;
 }
 
 .member-card h2 {
   margin: 0;
   font-size: 1rem;
+  overflow-wrap: anywhere;
 }
 
 .live,
@@ -111,18 +153,22 @@ body {
   margin: 4px 0;
   color: var(--muted);
   font-size: 0.82rem;
+  overflow-wrap: anywhere;
 }
 
 .badges {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
 .badges span {
-  border: 1px solid rgba(255, 77, 141, 0.35);
+  border: 1px solid var(--accent);
   background: rgba(255, 77, 141, 0.14);
   border-radius: 999px;
   padding: 3px 8px;
   font-size: 0.74rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

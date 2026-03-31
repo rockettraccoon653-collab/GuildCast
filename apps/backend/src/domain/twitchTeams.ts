@@ -34,6 +34,37 @@ type HelixTeamResponse = {
   data?: HelixTeamRecord[];
 };
 
+type HelixUserRecord = {
+  id: string;
+  login: string;
+  display_name: string;
+};
+
+type HelixUsersResponse = {
+  data?: HelixUserRecord[];
+};
+
+type HelixUsersByIdRecord = {
+  id: string;
+  login: string;
+  display_name: string;
+  profile_image_url?: string;
+  description?: string;
+};
+
+type HelixUsersByIdResponse = {
+  data?: HelixUsersByIdRecord[];
+};
+
+type HelixStreamRecord = {
+  user_id: string;
+  game_name?: string;
+};
+
+type HelixStreamsResponse = {
+  data?: HelixStreamRecord[];
+};
+
 type TwitchAppTokenResponse = {
   access_token: string;
   expires_in: number;
@@ -64,12 +95,98 @@ export class TwitchTeamsService {
 
   constructor(private readonly logger: FastifyBaseLogger) {}
 
+  async getMemberProfiles(userIds: string[]): Promise<
+    Map<
+      string,
+      {
+        displayName?: string;
+        avatarUrl?: string;
+        bio?: string;
+        live: boolean;
+        category?: string;
+      }
+    >
+  > {
+    const uniqueUserIds = Array.from(
+      new Set(
+        userIds
+          .map((value) => value.trim())
+          .filter((value) => /^\d+$/.test(value))
+      )
+    );
+
+    const byUserId = new Map<
+      string,
+      {
+        displayName?: string;
+        avatarUrl?: string;
+        bio?: string;
+        live: boolean;
+        category?: string;
+      }
+    >();
+
+    if (uniqueUserIds.length === 0) {
+      return byUserId;
+    }
+
+    for (const batch of this.chunk(uniqueUserIds, 100)) {
+      const usersPath = `/users?${batch.map((id) => `id=${encodeURIComponent(id)}`).join("&")}`;
+      const usersResponse = await this.helixGet<HelixUsersByIdResponse>(usersPath);
+      for (const user of usersResponse.data ?? []) {
+        byUserId.set(user.id, {
+          displayName: user.display_name || user.login,
+          avatarUrl: user.profile_image_url,
+          bio: user.description,
+          live: false
+        });
+      }
+
+      const streamsPath = `/streams?${batch.map((id) => `user_id=${encodeURIComponent(id)}`).join("&")}`;
+      const streamsResponse = await this.helixGet<HelixStreamsResponse>(streamsPath);
+      for (const stream of streamsResponse.data ?? []) {
+        const existing = byUserId.get(stream.user_id) ?? { live: false };
+        byUserId.set(stream.user_id, {
+          ...existing,
+          live: true,
+          category: stream.game_name
+        });
+      }
+    }
+
+    this.logger.info(
+      {
+        requestedMembers: uniqueUserIds.length,
+        enrichedMembers: byUserId.size,
+        liveMembers: Array.from(byUserId.values()).filter((member) => member.live).length
+      },
+      "Resolved Twitch member profile enrichment"
+    );
+
+    return byUserId;
+  }
+
   async getTwitchTeams(broadcasterId: string): Promise<TwitchTeamView[]> {
-    return this.fetchTwitchTeams(broadcasterId);
+    const teams = await this.fetchTwitchTeams(broadcasterId);
+    this.logger.info(
+      {
+        broadcasterId,
+        teamsReturned: teams.length,
+        teams: teams.map((team) => ({
+          id: team.id,
+          displayName: team.displayName,
+          source: team.source,
+          role: team.role
+        }))
+      },
+      "Backend JSON returned for Twitch teams"
+    );
+    return teams;
   }
 
   private async fetchTwitchTeams(broadcasterId: string): Promise<TwitchTeamView[]> {
     if (!this.clientId || (!this.currentAppToken && !this.clientSecret)) {
+      const message = "TWITCH credentials are incomplete; set TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET or TWITCH_APP_ACCESS_TOKEN";
       this.logger.warn(
         {
           broadcasterId,
@@ -77,16 +194,29 @@ export class TwitchTeamsService {
           hasToken: Boolean(this.currentAppToken),
           hasClientSecret: Boolean(this.clientSecret)
         },
-        "Skipping Twitch teams fetch because TWITCH credentials are incomplete"
+        message
       );
-      return [];
+      throw new Error(message);
     }
 
     try {
-      const membershipPath = `/teams/channel?broadcaster_id=${encodeURIComponent(broadcasterId)}`;
+      const verifiedBroadcasterId = await this.resolveBroadcasterId(broadcasterId);
+      if (!verifiedBroadcasterId) {
+        this.logger.warn(
+          {
+            broadcasterId,
+            reason: "Could not resolve broadcaster to a Twitch user id"
+          },
+          "Skipping Twitch teams fetch"
+        );
+        return [];
+      }
+
+      const membershipPath = `/teams/channel?broadcaster_id=${encodeURIComponent(verifiedBroadcasterId)}`;
       this.logger.info(
         {
           broadcasterId,
+          verifiedBroadcasterId,
           requestUrl: `https://api.twitch.tv/helix${membershipPath}`
         },
         "Requesting Twitch team memberships"
@@ -98,7 +228,7 @@ export class TwitchTeamsService {
       this.logger.info(
         {
           broadcasterId,
-          responseStatus: 200,
+          rawTwitchResponse: memberships,
           teamsReturned: memberships.length
         },
         "Fetched Twitch channel team memberships"
@@ -111,8 +241,8 @@ export class TwitchTeamsService {
         const record = detail.data?.[0];
         const ownerId = record?.users?.[0]?.user_id;
         const users = record?.users ?? [];
-        const isOwnerByList = ownerId === broadcasterId;
-        const isMemberByList = users.some((user) => user.user_id === broadcasterId);
+        const isOwnerByList = ownerId === verifiedBroadcasterId;
+        const isMemberByList = users.some((user) => user.user_id === verifiedBroadcasterId);
         const isManagedOverride =
           this.managedTeamIds.has(membership.id.toLowerCase()) ||
           this.managedTeamNames.has(membership.team_name.toLowerCase());
@@ -153,9 +283,49 @@ export class TwitchTeamsService {
 
       return teams;
     } catch (error) {
-      this.logger.error({ broadcasterId, error }, "Failed to fetch Twitch team memberships");
-      return [];
+      this.logger.error(
+        {
+          broadcasterId,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          errorStack: error instanceof Error ? error.stack : undefined
+        },
+        "Failed to fetch Twitch team memberships"
+      );
+      throw error;
     }
+  }
+
+  private async resolveBroadcasterId(input: string): Promise<string> {
+    const normalized = input.trim();
+    if (!normalized) {
+      return "";
+    }
+
+    if (/^\d+$/.test(normalized)) {
+      return normalized;
+    }
+
+    const usersPath = `/users?login=${encodeURIComponent(normalized.toLowerCase())}`;
+    this.logger.info(
+      {
+        input,
+        requestUrl: `https://api.twitch.tv/helix${usersPath}`
+      },
+      "Resolving broadcaster login to Twitch user id"
+    );
+
+    const usersResponse = await this.helixGet<HelixUsersResponse>(usersPath);
+    const user = usersResponse.data?.[0];
+    this.logger.info(
+      {
+        input,
+        resolvedBroadcasterId: user?.id ?? null,
+        rawUsersResponse: usersResponse.data ?? []
+      },
+      "Resolved broadcaster identity"
+    );
+
+    return user?.id ?? "";
   }
 
   private async helixGet<T>(path: string): Promise<T> {
@@ -177,12 +347,21 @@ export class TwitchTeamsService {
       });
     }
 
+    const rawBody = await response.text();
+    this.logger.info(
+      {
+        requestUrl: `https://api.twitch.tv/helix${path}`,
+        responseStatus: response.status,
+        rawBodyPreview: rawBody.slice(0, 2000)
+      },
+      "Twitch Helix raw response"
+    );
+
     if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Helix ${path} failed with ${response.status}: ${body.slice(0, 400)}`);
+      throw new Error(`Helix ${path} failed with ${response.status}: ${rawBody.slice(0, 400)}`);
     }
 
-    return (await response.json()) as T;
+    return JSON.parse(rawBody) as T;
   }
 
   private async resolveAppAccessToken(): Promise<string> {
@@ -227,5 +406,13 @@ export class TwitchTeamsService {
     this.logger.info({ expiresInSeconds: payload.expires_in }, "Refreshed Twitch app access token");
 
     return this.currentAppToken;
+  }
+
+  private chunk<T>(input: T[], size: number): T[][] {
+    const result: T[][] = [];
+    for (let index = 0; index < input.length; index += size) {
+      result.push(input.slice(index, index + size));
+    }
+    return result;
   }
 }

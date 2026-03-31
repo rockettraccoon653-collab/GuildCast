@@ -1,18 +1,35 @@
+import { config as loadEnv } from "dotenv";
+import { resolve } from "node:path";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { z } from "zod";
 import type {
   BroadcasterOnboardingRequest,
   BroadcasterSettings,
-  PanelMembersResponse
+  PanelMembersResponse,
+  TeamMemberView,
+  TwitchTeamView
 } from "@stream-team/shared";
 import { InMemoryStore } from "./domain/store";
 import { SpotlightService } from "./domain/spotlight";
 import { RealtimeBroker } from "./realtime/broker";
 import { TwitchTeamsService } from "./domain/twitchTeams";
 
+// Support running from either workspace root or apps/backend working directory.
+loadEnv({ path: resolve(process.cwd(), ".env") });
+loadEnv({ path: resolve(process.cwd(), "../../.env") });
+
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
+
+app.log.info(
+  {
+    hasTwitchClientId: Boolean(process.env.TWITCH_CLIENT_ID?.trim()),
+    hasTwitchClientSecret: Boolean(process.env.TWITCH_CLIENT_SECRET?.trim()),
+    hasTwitchAppToken: Boolean(process.env.TWITCH_APP_ACCESS_TOKEN?.trim())
+  },
+  "Backend Twitch credential presence"
+);
 
 const store = new InMemoryStore();
 const spotlightService = new SpotlightService(store);
@@ -24,7 +41,33 @@ const settingsSchema = z.object({
   enableManualTrigger: z.boolean(),
   enableShoutoutTrigger: z.boolean(),
   showAllTeams: z.boolean(),
+  hiddenTeamIds: z.array(z.string().min(1)).default([]),
   followCtaEnabled: z.boolean(),
+  panel: z.object({
+    panelTitle: z.string().min(1).max(80),
+    showSearch: z.boolean(),
+    showTeamChips: z.boolean(),
+    showMemberCards: z.boolean(),
+    showLiveStatus: z.boolean(),
+    emptyStateText: z.string().min(1).max(200),
+    searchPlaceholder: z.string().min(1).max(120),
+    style: z.object({
+      pageBackground: z.string().min(1),
+      panelBackground: z.string().min(1),
+      panelHeightPx: z.number().int().min(280).max(500),
+      primaryColor: z.string().min(1),
+      accentColor: z.string().min(1),
+      textColor: z.string().min(1),
+      mutedTextColor: z.string().min(1),
+      fontFamily: z.string().min(1),
+      fontSizePx: z.number().int().min(10).max(32),
+      fontWeight: z.number().int().min(300).max(900),
+      letterSpacingPx: z.number().min(-1).max(6),
+      cardPaddingPx: z.number().int().min(4).max(40),
+      sectionGapPx: z.number().int().min(4).max(40),
+      borderRadiusPx: z.number().int().min(0).max(40)
+    })
+  }),
   theme: z.object({
     id: z.string().min(1),
     name: z.string().min(1),
@@ -51,25 +94,82 @@ const onboardingSchema = z.object({
   displayName: z.string().min(2)
 });
 
+function mapVerifiedTeammates(
+  twitchTeams: TwitchTeamView[],
+  memberProfilesByUserId: Map<
+    string,
+    {
+      displayName?: string;
+      avatarUrl?: string;
+      bio?: string;
+      live: boolean;
+      category?: string;
+    }
+  >
+): TeamMemberView[] {
+  const byUserId = new Map<string, TeamMemberView>();
+
+  for (const team of twitchTeams) {
+    for (const member of team.members ?? []) {
+      const existing = byUserId.get(member.userId);
+      const badge = {
+        id: team.id,
+        name: team.displayName || team.name,
+        thumbnailUrl: team.thumbnailUrl,
+        ownerId: team.ownerId,
+        isOwner: team.role === "owner",
+        source: "twitch-verified" as const
+      };
+
+      if (!existing) {
+        const profile = memberProfilesByUserId.get(member.userId);
+        byUserId.set(member.userId, {
+          userId: member.userId,
+          displayName: profile?.displayName || member.displayName || member.login,
+          avatarUrl:
+            profile?.avatarUrl ??
+            "https://static-cdn.jtvnw.net/jtv_user_pictures/xarth/404_user_70x70.png",
+          live: profile?.live ?? false,
+          category: profile?.category,
+          bio: profile?.bio ?? "",
+          teams: [badge]
+        });
+        continue;
+      }
+
+      const hasBadge = existing.teams.some((item) => item.id === badge.id);
+      if (!hasBadge) {
+        existing.teams = [...existing.teams, badge];
+      }
+    }
+  }
+
+  return Array.from(byUserId.values());
+}
+
 app.get("/health", async () => ({ ok: true, service: "stream-team-backend" }));
 
 app.get("/api/panel/:broadcasterId/members", async (request) => {
   const { broadcasterId } = request.params as { broadcasterId: string };
-  if (!store.hasBroadcaster(broadcasterId)) {
-    app.log.info({ broadcasterId }, "Panel members requested for non-onboarded broadcaster");
-    return {
-      broadcasterId,
-      members: [],
-      teams: [],
-      twitchTeams: [],
-      onboarded: false
-    } satisfies PanelMembersResponse;
+  let twitchTeams = [] as Awaited<ReturnType<typeof twitchTeamsService.getTwitchTeams>>;
+  try {
+    twitchTeams = await twitchTeamsService.getTwitchTeams(broadcasterId);
+  } catch (error) {
+    app.log.error(
+      {
+        broadcasterId,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      },
+      "Unable to load Twitch teams for panel response"
+    );
   }
 
-  const members = store.getMembers(broadcasterId);
-  const twitchTeams = await twitchTeamsService.getTwitchTeams(broadcasterId);
+  const onboarded = store.hasBroadcaster(broadcasterId);
+  const settings = store.getSettings(broadcasterId);
+  const hiddenTeamIds = new Set((settings.hiddenTeamIds ?? []).map((teamId) => teamId.toLowerCase()));
+  const visibleTwitchTeams = twitchTeams.filter((team) => !hiddenTeamIds.has(team.id.toLowerCase()));
 
-  const twitchBadges = twitchTeams.map((team) => ({
+  const twitchBadges = visibleTwitchTeams.map((team) => ({
     id: team.id,
     name: team.displayName || team.name,
     thumbnailUrl: team.thumbnailUrl,
@@ -78,16 +178,41 @@ app.get("/api/panel/:broadcasterId/members", async (request) => {
     source: "twitch-verified" as const
   }));
 
-  const membersWithTeams = members.map((member) => ({
-    ...member,
-    teams: twitchBadges
-  }));
+  let memberProfilesByUserId = new Map<
+    string,
+    {
+      displayName?: string;
+      avatarUrl?: string;
+      bio?: string;
+      live: boolean;
+      category?: string;
+    }
+  >();
+
+  try {
+    memberProfilesByUserId = await twitchTeamsService.getMemberProfiles(
+      visibleTwitchTeams.flatMap((team) => (team.members ?? []).map((member) => member.userId))
+    );
+  } catch (error) {
+    app.log.warn(
+      {
+        broadcasterId,
+        errorMessage: error instanceof Error ? error.message : String(error)
+      },
+      "Unable to enrich Twitch member profile/live status; continuing with roster identities"
+    );
+  }
+
+  const membersWithTeams = mapVerifiedTeammates(visibleTwitchTeams, memberProfilesByUserId);
 
   app.log.info(
     {
       broadcasterId,
+      onboarded,
       members: membersWithTeams.length,
-      twitchTeams: twitchTeams.length
+      twitchTeamsTotal: twitchTeams.length,
+      twitchTeamsVisible: visibleTwitchTeams.length,
+      hiddenTeamIds: Array.from(hiddenTeamIds)
     },
     "Resolved panel members response"
   );
@@ -96,17 +221,45 @@ app.get("/api/panel/:broadcasterId/members", async (request) => {
     broadcasterId,
     members: membersWithTeams,
     teams: twitchBadges,
-    twitchTeams,
-    onboarded: true
+    twitchTeams: visibleTwitchTeams,
+    onboarded
   } satisfies PanelMembersResponse;
 });
 
 app.get("/api/twitch-teams/:broadcasterId", async (request) => {
   const { broadcasterId } = request.params as { broadcasterId: string };
-  app.log.info({ broadcasterId }, "Twitch team membership request received");
-  const teams = await twitchTeamsService.getTwitchTeams(broadcasterId);
   app.log.info(
-    { broadcasterId, count: teams.length, fallbackShown: teams.length === 0 },
+    {
+      broadcasterId,
+      requestUrl: `/api/twitch-teams/${broadcasterId}`
+    },
+    "Twitch team membership request received"
+  );
+  let teams;
+  try {
+    teams = await twitchTeamsService.getTwitchTeams(broadcasterId);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    app.log.error(
+      {
+        broadcasterId,
+        errorMessage
+      },
+      "Twitch team membership request failed"
+    );
+    return {
+      broadcasterId,
+      teams: [],
+      error: errorMessage
+    };
+  }
+  app.log.info(
+    {
+      broadcasterId,
+      count: teams.length,
+      fallbackShown: teams.length === 0,
+      payload: { broadcasterId, teams }
+    },
     "Returning Twitch team memberships"
   );
   return { broadcasterId, teams };

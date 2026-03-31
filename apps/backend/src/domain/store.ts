@@ -31,7 +31,33 @@ const defaultSettings: BroadcasterSettings = {
   enableManualTrigger: true,
   enableShoutoutTrigger: true,
   showAllTeams: true,
+  hiddenTeamIds: [],
   followCtaEnabled: true,
+  panel: {
+    panelTitle: "Spotlight Network",
+    showSearch: true,
+    showTeamChips: true,
+    showMemberCards: true,
+    showLiveStatus: true,
+    emptyStateText: "No verified Twitch stream teams found for this broadcaster.",
+    searchPlaceholder: "Search verified Twitch teammates",
+    style: {
+      pageBackground: "#071018",
+      panelBackground: "rgba(15, 30, 44, 0.85)",
+      panelHeightPx: 500,
+      primaryColor: "#4effd6",
+      accentColor: "#ff4d8d",
+      textColor: "#e9f8ff",
+      mutedTextColor: "#8fb2c2",
+      fontFamily: "Space Grotesk, sans-serif",
+      fontSizePx: 14,
+      fontWeight: 500,
+      letterSpacingPx: 0,
+      cardPaddingPx: 14,
+      sectionGapPx: 16,
+      borderRadiusPx: 12
+    }
+  },
   theme: {
     id: "neon-arena",
     name: "Neon Arena",
@@ -105,6 +131,13 @@ export class InMemoryStore {
     const settings: BroadcasterSettings = {
       ...defaultSettings,
       broadcasterId,
+      hiddenTeamIds: [],
+      panel: {
+        ...defaultSettings.panel,
+        style: {
+          ...defaultSettings.panel.style
+        }
+      },
       theme: {
         ...defaultSettings.theme
       }
@@ -128,9 +161,31 @@ export class InMemoryStore {
   }
 
   getSettings(broadcasterId: string): BroadcasterSettings {
-    return this.settingsByBroadcaster.get(broadcasterId) ?? {
+    const existing = this.settingsByBroadcaster.get(broadcasterId);
+    if (existing) {
+      return {
+        ...existing,
+        hiddenTeamIds: existing.hiddenTeamIds ?? [],
+        panel: {
+          ...defaultSettings.panel,
+          ...(existing.panel ?? {}),
+          style: {
+            ...defaultSettings.panel.style,
+            ...(existing.panel?.style ?? {})
+          }
+        }
+      };
+    }
+
+    return {
       ...defaultSettings,
-      broadcasterId
+      broadcasterId,
+      panel: {
+        ...defaultSettings.panel,
+        style: {
+          ...defaultSettings.panel.style
+        }
+      }
     };
   }
 

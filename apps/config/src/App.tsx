@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type {
   BroadcasterOnboardingResponse,
   BroadcasterSettings,
+  PanelDisplaySettings,
   TwitchTeamView
 } from "@stream-team/shared";
 
@@ -11,6 +12,47 @@ const API_ROOT = API_BASE.endsWith("/api") ? API_BASE : `${API_BASE}/api`;
 const DEFAULT_BROADCASTER_ID = import.meta.env.VITE_BROADCASTER_ID ?? "demo-broadcaster";
 const ACTIVE_BROADCASTER_KEY = "st-active-broadcaster";
 const LOG_PREFIX = "[GuildCast Config]";
+
+const DEFAULT_PANEL_SETTINGS: PanelDisplaySettings = {
+  panelTitle: "Spotlight Network",
+  showSearch: true,
+  showTeamChips: true,
+  showMemberCards: true,
+  showLiveStatus: true,
+  emptyStateText: "No verified Twitch stream teams found for this broadcaster.",
+  searchPlaceholder: "Search verified Twitch teammates",
+  style: {
+    pageBackground: "#071018",
+    panelBackground: "rgba(15, 30, 44, 0.85)",
+    panelHeightPx: 500,
+    primaryColor: "#4effd6",
+    accentColor: "#ff4d8d",
+    textColor: "#e9f8ff",
+    mutedTextColor: "#8fb2c2",
+    fontFamily: "Space Grotesk, sans-serif",
+    fontSizePx: 14,
+    fontWeight: 500,
+    letterSpacingPx: 0,
+    cardPaddingPx: 14,
+    sectionGapPx: 16,
+    borderRadiusPx: 12
+  }
+};
+
+function normalizeSettings(settings: BroadcasterSettings): BroadcasterSettings {
+  return {
+    ...settings,
+    hiddenTeamIds: settings.hiddenTeamIds ?? [],
+    panel: {
+      ...DEFAULT_PANEL_SETTINGS,
+      ...(settings.panel ?? {}),
+      style: {
+        ...DEFAULT_PANEL_SETTINGS.style,
+        ...(settings.panel?.style ?? {})
+      }
+    }
+  };
+}
 
 type TwitchAuthPayload = {
   channel_id?: string | number;
@@ -67,53 +109,79 @@ function decodeJwtPayload(token: string): TwitchAuthPayload | null {
   }
 }
 
-async function resolveTwitchChannelId(): Promise<string> {
+function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function resolveTwitchChannelId(): Promise<string> {
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
     const twitch = (window as Window & { Twitch?: TwitchGlobal }).Twitch;
     const ext = twitch?.ext;
 
     if (!ext) {
-      console.warn(`${LOG_PREFIX} Twitch helper not available yet; using fallback broadcaster id`);
-      resolve("");
-      return;
+      if (attempt === 1 || attempt % 5 === 0) {
+        console.warn(`${LOG_PREFIX} Twitch helper not ready yet`, { attempt });
+      }
+      await sleep(250);
+      continue;
     }
 
-    let finished = false;
-    const timeout = window.setTimeout(() => {
-      if (!finished) {
+    const channelId = await new Promise<string>((resolve) => {
+      let finished = false;
+      const timeout = window.setTimeout(() => {
+        if (!finished) {
+          finished = true;
+          resolve("");
+        }
+      }, 2500);
+
+      ext.onAuthorized((auth) => {
+        if (finished) {
+          return;
+        }
+
         finished = true;
+        window.clearTimeout(timeout);
+
+        const payload = auth.token ? decodeJwtPayload(auth.token) : null;
+        console.info(`${LOG_PREFIX} Twitch auth object`, {
+          channelId: auth.channelId,
+          hasToken: Boolean(auth.token),
+          decodedChannelId: payload?.channel_id ?? null
+        });
+
+        const fromAuth = auth.channelId?.trim();
+        if (fromAuth) {
+          resolve(fromAuth.toLowerCase());
+          return;
+        }
+
+        const fromToken = payload?.channel_id;
+        if (fromToken !== undefined && fromToken !== null) {
+          resolve(String(fromToken).trim().toLowerCase());
+          return;
+        }
+
         resolve("");
-      }
-    }, 1500);
-
-    ext.onAuthorized((auth) => {
-      if (finished) {
-        return;
-      }
-
-      finished = true;
-      window.clearTimeout(timeout);
-
-      const fromAuth = auth.channelId?.trim();
-      if (fromAuth) {
-        resolve(fromAuth.toLowerCase());
-        return;
-      }
-
-      const payload = auth.token ? decodeJwtPayload(auth.token) : null;
-      const fromToken = payload?.channel_id;
-      if (fromToken !== undefined && fromToken !== null) {
-        resolve(String(fromToken).trim().toLowerCase());
-        return;
-      }
-
-      resolve("");
+      });
     });
-  });
+
+    if (channelId) {
+      return channelId;
+    }
+
+    await sleep(250);
+  }
+
+  console.warn(`${LOG_PREFIX} Twitch auth not resolved after retries; using fallback broadcaster id`);
+  return "";
 }
 
 export function App() {
   const [activeBroadcasterId, setActiveBroadcasterId] = useState(resolveInitialBroadcasterId);
+  const [identityResolved, setIdentityResolved] = useState(false);
   const [settings, setSettings] = useState<BroadcasterSettings | null>(null);
   const [creatorId, setCreatorId] = useState("1001");
   const [onboardBId, setOnboardBId] = useState(resolveInitialBroadcasterId);
@@ -141,12 +209,17 @@ export function App() {
 
     async function detectBroadcaster() {
       const twitchId = await resolveTwitchChannelId();
-      if (!mounted || !twitchId) {
+      if (!mounted) {
+        return;
+      }
+
+      if (!twitchId) {
         if (mounted) {
           console.info(`${LOG_PREFIX} no Twitch broadcaster id detected; using fallback`, {
             broadcasterId: activeBroadcasterId
           });
         }
+        setIdentityResolved(true);
         return;
       }
 
@@ -154,6 +227,7 @@ export function App() {
       setAutoDetectedId(true);
       setActiveBroadcasterId((current) => (current === twitchId ? current : twitchId));
       setOnboardBId(twitchId);
+      setIdentityResolved(true);
     }
 
     void detectBroadcaster();
@@ -165,6 +239,10 @@ export function App() {
 
   useEffect(() => {
     async function load() {
+      if (!identityResolved) {
+        return;
+      }
+
       console.info(`${LOG_PREFIX} loading settings`, {
         broadcasterId: activeBroadcasterId,
         url: `${API_ROOT}/settings/${activeBroadcasterId}`
@@ -196,8 +274,9 @@ export function App() {
         }
 
         const data = (await response.json()) as BroadcasterSettings;
+        const normalizedSettings = normalizeSettings(data);
         setNeedsOnboarding(false);
-        setSettings(data);
+        setSettings(normalizedSettings);
         setStatus("Ready");
         setIsLoading(false);
         console.info(`${LOG_PREFIX} settings loaded`, { broadcasterId: activeBroadcasterId });
@@ -213,10 +292,14 @@ export function App() {
       }
     }
     void load();
-  }, [activeBroadcasterId, reloadToken]);
+  }, [activeBroadcasterId, identityResolved, reloadToken]);
 
   useEffect(() => {
     async function loadTwitchTeams() {
+      if (!identityResolved) {
+        return;
+      }
+
       const url = `${API_ROOT}/twitch-teams/${activeBroadcasterId}`;
       console.info(`${LOG_PREFIX} loading twitch teams`, {
         broadcasterId: activeBroadcasterId,
@@ -234,8 +317,17 @@ export function App() {
           return;
         }
 
-        const payload = (await response.json()) as { teams?: TwitchTeamView[] };
+        const payload = (await response.json()) as { teams?: TwitchTeamView[]; error?: string };
+        console.info(`${LOG_PREFIX} frontend received payload`, {
+          broadcasterId: activeBroadcasterId,
+          payload
+        });
         const teams = payload.teams ?? [];
+        if (payload.error) {
+          setTwitchTeams([]);
+          setTeamsStatus(`Twitch teams error: ${payload.error}`);
+          return;
+        }
         setTwitchTeams(teams);
         setTeamsStatus(teams.length > 0 ? `Found ${teams.length} Twitch stream team(s).` : "No stream teams found");
         console.info(`${LOG_PREFIX} twitch teams loaded`, {
@@ -253,7 +345,7 @@ export function App() {
     }
 
     void loadTwitchTeams();
-  }, [activeBroadcasterId, reloadToken]);
+  }, [activeBroadcasterId, identityResolved, reloadToken]);
 
   useEffect(() => {
     writeStoredBroadcasterId(activeBroadcasterId);
@@ -278,7 +370,7 @@ export function App() {
 
     const data = (await response.json()) as BroadcasterOnboardingResponse;
     setActiveBroadcasterId(data.profile.broadcasterId);
-    setSettings(data.settings);
+    setSettings(normalizeSettings(data.settings));
     setNeedsOnboarding(false);
     setIsLoading(false);
     console.info(`${LOG_PREFIX} register broadcaster succeeded`, {
@@ -329,6 +421,24 @@ export function App() {
     }
   }
 
+  function toggleTeamVisibility(teamId: string, shouldShow: boolean) {
+    if (!settings) {
+      return;
+    }
+
+    const hidden = new Set(settings.hiddenTeamIds ?? []);
+    if (shouldShow) {
+      hidden.delete(teamId);
+    } else {
+      hidden.add(teamId);
+    }
+
+    setSettings({
+      ...settings,
+      hiddenTeamIds: Array.from(hidden)
+    });
+  }
+
   useEffect(() => {
     console.info(`${LOG_PREFIX} render state`, {
       broadcasterId: activeBroadcasterId,
@@ -364,6 +474,23 @@ export function App() {
         <section className="actions">
           <button onClick={registerBroadcaster}>Activate Extension</button>
         </section>
+        <section className="actions">
+          <h2>Verified Twitch Stream Teams</h2>
+          <p className="status">{teamsStatus}</p>
+          {twitchTeams.length > 0 ? (
+            <ul>
+              {twitchTeams.map((team) => (
+                <li key={team.id}>
+                  {team.displayName}
+                  {" "}
+                  ({team.role === "owner" ? "Owner" : team.role === "member" ? "Member" : "Member"})
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="status">No verified Twitch stream teams found for this broadcaster.</p>
+          )}
+        </section>
         <p className="status">{status}</p>
       </main>
     );
@@ -389,6 +516,9 @@ export function App() {
       </main>
     );
   }
+
+  const hiddenTeamIds = new Set(settings.hiddenTeamIds ?? []);
+  const visibleTeams = twitchTeams.filter((team) => !hiddenTeamIds.has(team.id));
 
   return (
     <main className="config-root">
@@ -454,6 +584,328 @@ export function App() {
         </label>
       </section>
 
+      <section className="grid">
+        <label>
+          Panel title
+          <input
+            type="text"
+            value={settings.panel.panelTitle}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: { ...settings.panel, panelTitle: event.target.value }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Empty state text
+          <input
+            type="text"
+            value={settings.panel.emptyStateText}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: { ...settings.panel, emptyStateText: event.target.value }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Search placeholder
+          <input
+            type="text"
+            value={settings.panel.searchPlaceholder}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: { ...settings.panel, searchPlaceholder: event.target.value }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.panel.showSearch}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: { ...settings.panel, showSearch: event.target.checked }
+              })
+            }
+          />
+          Show search
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.panel.showTeamChips}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: { ...settings.panel, showTeamChips: event.target.checked }
+              })
+            }
+          />
+          Show team chips
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.panel.showMemberCards}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: { ...settings.panel, showMemberCards: event.target.checked }
+              })
+            }
+          />
+          Show member cards
+        </label>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.panel.showLiveStatus}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: { ...settings.panel, showLiveStatus: event.target.checked }
+              })
+            }
+          />
+          Show live status
+        </label>
+
+        <label>
+          Page background
+          <input
+            type="text"
+            value={settings.panel.style.pageBackground}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, pageBackground: event.target.value }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Card background
+          <input
+            type="text"
+            value={settings.panel.style.panelBackground}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, panelBackground: event.target.value }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Primary text color
+          <input
+            type="color"
+            value={settings.panel.style.primaryColor}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, primaryColor: event.target.value }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Accent color
+          <input
+            type="color"
+            value={settings.panel.style.accentColor}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, accentColor: event.target.value }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Body text color
+          <input
+            type="color"
+            value={settings.panel.style.textColor}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, textColor: event.target.value }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Muted text color
+          <input
+            type="color"
+            value={settings.panel.style.mutedTextColor}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, mutedTextColor: event.target.value }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Font family
+          <input
+            type="text"
+            value={settings.panel.style.fontFamily}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, fontFamily: event.target.value }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Font size (px)
+          <input
+            type="number"
+            value={settings.panel.style.fontSizePx}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, fontSizePx: Number(event.target.value) }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Font weight
+          <input
+            type="number"
+            value={settings.panel.style.fontWeight}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, fontWeight: Number(event.target.value) }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Letter spacing (px)
+          <input
+            type="number"
+            step="0.1"
+            value={settings.panel.style.letterSpacingPx}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, letterSpacingPx: Number(event.target.value) }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Section gap (px)
+          <input
+            type="number"
+            value={settings.panel.style.sectionGapPx}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, sectionGapPx: Number(event.target.value) }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Card padding (px)
+          <input
+            type="number"
+            value={settings.panel.style.cardPaddingPx}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, cardPaddingPx: Number(event.target.value) }
+                }
+              })
+            }
+          />
+        </label>
+
+        <label>
+          Border radius (px)
+          <input
+            type="number"
+            value={settings.panel.style.borderRadiusPx}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                panel: {
+                  ...settings.panel,
+                  style: { ...settings.panel.style, borderRadiusPx: Number(event.target.value) }
+                }
+              })
+            }
+          />
+        </label>
+      </section>
+
       <section className="actions">
         <button onClick={save}>Save Settings</button>
         <div className="manual-trigger">
@@ -470,15 +922,40 @@ export function App() {
         <h2>Verified Twitch Stream Teams</h2>
         <p className="status">{teamsStatus}</p>
         {twitchTeams.length > 0 ? (
-          <ul>
-            {twitchTeams.map((team) => (
-              <li key={team.id}>
-                {team.displayName}
-                {" "}
-                ({team.role === "owner" ? "Owner" : team.role === "member" ? "Member" : "Member"})
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul>
+              {twitchTeams.map((team) => {
+                const isVisible = !hiddenTeamIds.has(team.id);
+                return (
+                  <li key={team.id}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={isVisible}
+                        onChange={(event) => toggleTeamVisibility(team.id, event.target.checked)}
+                      />
+                      Show in extension
+                    </label>
+                    {" "}
+                    {team.displayName}
+                    {" "}
+                    ({team.role === "owner" ? "Owner" : team.role === "member" ? "Member" : "Member"})
+                  </li>
+                );
+              })}
+            </ul>
+
+            <h2>Visible Teams In Extension</h2>
+            {visibleTeams.length > 0 ? (
+              <ul>
+                {visibleTeams.map((team) => (
+                  <li key={team.id}>{team.displayName}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="status">All verified teams are currently hidden in extension output.</p>
+            )}
+          </>
         ) : (
           <p className="status">No verified Twitch stream teams found for this broadcaster.</p>
         )}

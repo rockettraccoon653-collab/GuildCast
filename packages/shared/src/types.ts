@@ -56,13 +56,43 @@ export interface ThemeSettings {
   displayDurationMs: number;
 }
 
+export interface PanelDisplayStyleSettings {
+  pageBackground: string;
+  panelBackground: string;
+  panelHeightPx: number;
+  primaryColor: string;
+  accentColor: string;
+  textColor: string;
+  mutedTextColor: string;
+  fontFamily: string;
+  fontSizePx: number;
+  fontWeight: number;
+  letterSpacingPx: number;
+  cardPaddingPx: number;
+  sectionGapPx: number;
+  borderRadiusPx: number;
+}
+
+export interface PanelDisplaySettings {
+  panelTitle: string;
+  showSearch: boolean;
+  showTeamChips: boolean;
+  showMemberCards: boolean;
+  showLiveStatus: boolean;
+  emptyStateText: string;
+  searchPlaceholder: string;
+  style: PanelDisplayStyleSettings;
+}
+
 export interface BroadcasterSettings {
   broadcasterId: string;
   enableManualTrigger: boolean;
   enableShoutoutTrigger: boolean;
   showAllTeams: boolean;
+  hiddenTeamIds: string[];
   followCtaEnabled: boolean;
   theme: ThemeSettings;
+  panel: PanelDisplaySettings;
 }
 
 export interface BroadcasterProfile {
