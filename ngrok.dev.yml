@@ -1,0 +1,8 @@
+version: 3
+agent:
+  update_channel: stable
+endpoints:
+  - name: twitch-dev
+    description: Unified Stream Team dev host
+    upstream:
+      url: 8080

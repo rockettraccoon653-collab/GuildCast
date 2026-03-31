@@ -9,8 +9,15 @@
   "scripts": {
     "build": "npm run --workspaces build",
     "dev": "npm run --workspaces dev",
+    "dev:proxy": "node scripts/dev-proxy.mjs",
+    "dev:twitch:panel": "npm run dev:twitch -w @stream-team/panel",
+    "dev:twitch:overlay": "npm run dev:twitch -w @stream-team/overlay",
+    "dev:twitch:config": "npm run dev:twitch -w @stream-team/config",
     "lint": "npm run --workspaces lint",
     "typecheck": "npm run --workspaces typecheck"
+  },
+  "devDependencies": {
+    "http-proxy": "^1.18.1"
   },
   "engines": {
     "node": ">=20"
