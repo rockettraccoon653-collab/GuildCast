@@ -8,6 +8,23 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 const DEFAULT_BROADCASTER_ID = import.meta.env.VITE_BROADCASTER_ID ?? "demo-broadcaster";
 const ACTIVE_BROADCASTER_KEY = "st-active-broadcaster";
 
+type TwitchAuthPayload = {
+  channel_id?: string | number;
+};
+
+type TwitchAuth = {
+  token?: string;
+  channelId?: string;
+};
+
+type TwitchExt = {
+  onAuthorized: (callback: (auth: TwitchAuth) => void) => void;
+};
+
+type TwitchGlobal = {
+  ext?: TwitchExt;
+};
+
 function readStoredBroadcasterId(): string {
   try {
     return window.localStorage.getItem(ACTIVE_BROADCASTER_KEY) ?? "";
@@ -30,15 +47,97 @@ function resolveInitialBroadcasterId(): string {
   return (fromQuery || fromStorage || DEFAULT_BROADCASTER_ID).trim().toLowerCase();
 }
 
+function decodeJwtPayload(token: string): TwitchAuthPayload | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) {
+      return null;
+    }
+
+    const normalized = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const payload = JSON.parse(window.atob(padded)) as TwitchAuthPayload;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveTwitchChannelId(): Promise<string> {
+  return new Promise((resolve) => {
+    const twitch = (window as Window & { Twitch?: TwitchGlobal }).Twitch;
+    const ext = twitch?.ext;
+
+    if (!ext) {
+      resolve("");
+      return;
+    }
+
+    let finished = false;
+    const timeout = window.setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        resolve("");
+      }
+    }, 1500);
+
+    ext.onAuthorized((auth) => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+      window.clearTimeout(timeout);
+
+      const fromAuth = auth.channelId?.trim();
+      if (fromAuth) {
+        resolve(fromAuth.toLowerCase());
+        return;
+      }
+
+      const payload = auth.token ? decodeJwtPayload(auth.token) : null;
+      const fromToken = payload?.channel_id;
+      if (fromToken !== undefined && fromToken !== null) {
+        resolve(String(fromToken).trim().toLowerCase());
+        return;
+      }
+
+      resolve("");
+    });
+  });
+}
+
 export function App() {
   const [activeBroadcasterId, setActiveBroadcasterId] = useState(resolveInitialBroadcasterId);
   const [settings, setSettings] = useState<BroadcasterSettings | null>(null);
   const [creatorId, setCreatorId] = useState("1001");
   const [onboardBId, setOnboardBId] = useState(resolveInitialBroadcasterId);
+  const [autoDetectedId, setAutoDetectedId] = useState(false);
   const [onboardName, setOnboardName] = useState("My Channel");
   const [onboardTeam, setOnboardTeam] = useState("My Stream Team");
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function detectBroadcaster() {
+      const twitchId = await resolveTwitchChannelId();
+      if (!mounted || !twitchId) {
+        return;
+      }
+
+      setAutoDetectedId(true);
+      setActiveBroadcasterId((current) => (current === twitchId ? current : twitchId));
+      setOnboardBId(twitchId);
+    }
+
+    void detectBroadcaster();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -135,9 +234,16 @@ export function App() {
         <p>Enter your channel information once to activate your Team Hub and Spotlight Overlay.</p>
         <section className="grid">
           <label>
-            Broadcaster ID (Twitch login)
-            <input value={onboardBId} onChange={(event) => setOnboardBId(event.target.value)} />
+            Broadcaster ID
+            <input
+              value={onboardBId}
+              onChange={(event) => setOnboardBId(event.target.value)}
+              readOnly={autoDetectedId}
+            />
           </label>
+          {autoDetectedId && (
+            <p className="status">Detected from Twitch channel context.</p>
+          )}
           <label>
             Display name
             <input value={onboardName} onChange={(event) => setOnboardName(event.target.value)} />
@@ -235,19 +341,21 @@ export function App() {
         </div>
       </section>
 
-      <section className="actions switcher">
-        <label>
-          Switch broadcaster
-          <input
-            value={onboardBId}
-            onChange={(event) => setOnboardBId(event.target.value)}
-            placeholder="another-channel-login"
-          />
-        </label>
-        <button onClick={() => setActiveBroadcasterId(onboardBId.trim().toLowerCase())}>
-          Load Broadcaster
-        </button>
-      </section>
+      {!autoDetectedId && (
+        <section className="actions switcher">
+          <label>
+            Switch broadcaster
+            <input
+              value={onboardBId}
+              onChange={(event) => setOnboardBId(event.target.value)}
+              placeholder="another-channel-login"
+            />
+          </label>
+          <button onClick={() => setActiveBroadcasterId(onboardBId.trim().toLowerCase())}>
+            Load Broadcaster
+          </button>
+        </section>
+      )}
 
       <p className="status">{status}</p>
     </main>

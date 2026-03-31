@@ -5,6 +5,23 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 const DEFAULT_BROADCASTER_ID = import.meta.env.VITE_BROADCASTER_ID ?? "demo-broadcaster";
 const ACTIVE_BROADCASTER_KEY = "st-active-broadcaster";
 
+type TwitchAuthPayload = {
+  channel_id?: string | number;
+};
+
+type TwitchAuth = {
+  token?: string;
+  channelId?: string;
+};
+
+type TwitchExt = {
+  onAuthorized: (callback: (auth: TwitchAuth) => void) => void;
+};
+
+type TwitchGlobal = {
+  ext?: TwitchExt;
+};
+
 function readStoredBroadcasterId(): string {
   try {
     return window.localStorage.getItem(ACTIVE_BROADCASTER_KEY) ?? "";
@@ -30,12 +47,95 @@ function resolveBroadcasterId(): string {
   return id;
 }
 
+function decodeJwtPayload(token: string): TwitchAuthPayload | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) {
+      return null;
+    }
+
+    const normalized = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const payload = JSON.parse(window.atob(padded)) as TwitchAuthPayload;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveTwitchChannelId(): Promise<string> {
+  return new Promise((resolve) => {
+    const twitch = (window as Window & { Twitch?: TwitchGlobal }).Twitch;
+    const ext = twitch?.ext;
+
+    if (!ext) {
+      resolve("");
+      return;
+    }
+
+    let finished = false;
+    const timeout = window.setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        resolve("");
+      }
+    }, 1500);
+
+    ext.onAuthorized((auth) => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+      window.clearTimeout(timeout);
+
+      const fromAuth = auth.channelId?.trim();
+      if (fromAuth) {
+        resolve(fromAuth.toLowerCase());
+        return;
+      }
+
+      const payload = auth.token ? decodeJwtPayload(auth.token) : null;
+      const fromToken = payload?.channel_id;
+      if (fromToken !== undefined && fromToken !== null) {
+        resolve(String(fromToken).trim().toLowerCase());
+        return;
+      }
+
+      resolve("");
+    });
+  });
+}
+
 export function App() {
-  const [broadcasterId] = useState(resolveBroadcasterId);
+  const [broadcasterId, setBroadcasterId] = useState(resolveBroadcasterId);
   const [members, setMembers] = useState<TeamMemberView[]>([]);
   const [query, setQuery] = useState("");
   const [onboarded, setOnboarded] = useState(true);
   const [status, setStatus] = useState("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function detectBroadcaster() {
+      const twitchId = await resolveTwitchChannelId();
+      if (!mounted || !twitchId) {
+        return;
+      }
+
+      setBroadcasterId((current) => (current === twitchId ? current : twitchId));
+    }
+
+    void detectBroadcaster();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    writeStoredBroadcasterId(broadcasterId);
+  }, [broadcasterId]);
 
   useEffect(() => {
     async function loadMembers() {
